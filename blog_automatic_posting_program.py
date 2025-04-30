@@ -14,10 +14,18 @@ import time
 import random
 import os
 import pyperclip
+from PyQt5.QtWidgets import *
+from PyQt5 import uic
+import sys
+
+log_function = print
+def set_logger(func):
+    """로깅 콜백을 설정합니다."""
+    global log_function
+    log_function = func
 
 
-
-
+# 크롬 드라이버 세팅
 def chrome_setting():
     chrome_version = random.randint(118, 122)# 고정된 모바일 버전의 User-Agent 패턴 (숫자만 랜덤하게 변경)
     user_agent = f"Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Version/17.0 Mobile/{chrome_version}.0.0 Safari/537.36"
@@ -39,7 +47,7 @@ def chrome_setting():
 
 
 # 계정 정보 및 검색어 설정
-def info_setting(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Search_word,File_path, Api_key):   
+def info_setting(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Search_word, Post_num, Api_key):   
     global coupang_id
     coupang_id = Coupang_id
     global coupang_pw
@@ -60,6 +68,8 @@ def info_setting(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Sear
     file_path = "C:\\blog_automatic_posting\\blog_automatic_posting.xlsx"
     global api_key
     api_key = Api_key
+    global post_num
+    post_num = Post_num
     
 def login(driver):
     #아이디 넣기
@@ -78,9 +88,11 @@ def login(driver):
         driver.find_element(By.CSS_SELECTOR, ".login__button--submit").click()
         WebDriverWait(driver, 10).until(EC.url_contains("postlogin"))
         time.sleep(1)
+        log_function("로그인 재시도")
         if not driver.find_elements(By.CSS_SELECTOR, ".login__button--submit"):
             break
-    
+
+
 def search(driver):
     search_box = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ant-input.ant-input-lg")))
     search_box.click()
@@ -106,11 +118,12 @@ def get_link(driver, n): #n개의 상품 링크 가져오기
         if(clipboard_text[:4] == "http"):
             links.append(clipboard_text)
         driver.back()
+        log_function(str(len(links)+1) + "번째 상품 링크 추출")
     return links
 
 
 
-#링크 타고 들어가서 대표 이미지와 베스트 리뷰 가져오기
+#링크 타고 들어가서 제목, 대표 이미지, 베스트 리뷰 가져오기
 def get_img_review_title(driver, links):
     img_srcs = []
     best_reviews = []
@@ -120,54 +133,26 @@ def get_img_review_title(driver, links):
         WebDriverWait(driver, 10).until(EC.presence_of_element_located(
         (By.CSS_SELECTOR, '.rds-button.rds-button--lg.rds-button--fill-blue-normal.rds-button--block.main-product_action__XSlcT'))).click()
         #베스트 리뷰 가져오기기
-        img_src = get_img(driver)
-        img_srcs.append(img_src)
-        best_review = get_review(driver)
-        best_reviews.append(best_review)
-        title = get_title(driver)
-        titles.append(title)
-        print(img_srcs)
-        print(best_reviews)
-        print(titles)
+        img_src = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".rds-img img")))
+        img_srcs.append(img_src.get_attribute("src"))
+        best_review = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ProductReview_review__article__reviews__text__article__FveJz")))
+        best_reviews.append(best_review.text)
+        title = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ProductInfo_title__fLscZ")))
+        titles.append(title.text)
+        log_function(str(len(img_srcs)+1) + "번째 상품 정보 추출")
     return img_srcs, best_reviews, titles
-
-def get_img(driver):
-    
-    try:
-        img_src = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, ".rds-img img"))
-        )
-        return img_src.get_attribute("src")
-    except Exception as e:
-            print(f"오류 발생: {e}")
-            return None
-
-def get_review(driver):
-    best_review = WebDriverWait(driver, 10).until(
-    EC.presence_of_element_located((By.CSS_SELECTOR, ".ProductReview_review__article__reviews__text__article__FveJz"))
-    )
-    return best_review.text
-
-def get_title(driver):
-    title = WebDriverWait(driver, 10).until(
-    EC.presence_of_element_located((By.CSS_SELECTOR, ".ProductInfo_title__fLscZ"))
-    )
-    return title.text
-
-    
-
-
 
 #링크, 이미지 경로, 리뷰 엑셀에 저장하기
 def save_xl(links, img_srcs, best_reviews, titles):
-    print("save_xl실행!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
     # 엑셀 파일 경로
 
     if os.path.exists(file_path):     # 파일이 존재하는지 확인
         wb = load_workbook(file_path) # 파일이 존재하면 열기
+        log_function("엑셀 파일 열기")
     else:
         wb = Workbook() # 파일이 존재하지 않으면 새로 생성
-
+        log_function("엑셀 파일 생성")
     
     ws = wb.active
     #1행은 속성 값으로 채우기기
@@ -248,7 +233,7 @@ def make_content():
             
         content = "\n".join(paragraph)
         contents.append(content)
-        print(str(i+1) + "번째 글 생성 완료")
+        log_function(str(i+1) + "번째 글 생성 완료")
 
     #엑셀에 content 저장하기
     i=2 #1열은 속성, 2열부터 값 저장
@@ -284,7 +269,7 @@ def write_blog(driver):
     pyperclip.copy(blog_pw)
     pw_box.send_keys(Keys.CONTROL, "v")
     driver.find_element(By.CSS_SELECTOR, ".btn_g.highlight.submit").click()
-
+    k=1
     for i in range(len(contents)):
         time.sleep(2)
         driver.get(blog_write_page)
@@ -293,11 +278,11 @@ def write_blog(driver):
         try:
             WebDriverWait(driver, 3).until(EC.alert_is_present())
             alert = driver.switch_to.alert
-            print("알림창 내용:", alert.text)
+            log_function("알림창 내용:"+ alert.text)
             alert.dismiss()
-            print("알림창 거절")
+            log_function("알림창 거절")
         except:
-            print("알림창 없음")
+            log_function("알림창 없음")
 
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".textarea_tit"))).click()
         webdriver.ActionChains(driver).send_keys("쿠팡 가성비 " + search_word + " 추천" + titles[i]).perform()
@@ -320,18 +305,22 @@ def write_blog(driver):
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn.btn-default"))).click()
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "open20"))).click()
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "publish-btn"))).click()
+        log_function(str(k) + "번째 포스팅 완료")
+        k += 1
 
 
 
 
 def main(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Search_word, Post_num, Api_key):
+    log_function("프로그램 시작")
     driver = chrome_setting()
     info_setting(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Search_word, Post_num, Api_key)
+    log_function("드라이버 및 계정 정보 입력 완료료")
     login(driver)
     search(driver)
-    links = get_link(driver, int(Post_num)) #가져올 상위 상품 개수
+    links = get_link(driver, int(post_num)) #가져올 상위 상품 개수
     img_srcs, best_reviews, titles = get_img_review_title(driver, links)
     save_xl(links, img_srcs, best_reviews, titles)
     make_content()
     write_blog(driver)
-    print("스크립트 종료")
+    log_function("프로그램 종료")

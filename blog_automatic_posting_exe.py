@@ -1,21 +1,49 @@
 from PyQt5.QtWidgets import *
 from PyQt5 import uic
+from PyQt5.QtCore import QThread  # [수정]
 import sys
 import os
 import blog_automatic_posting
+from PyQt5.QtWidgets import QTextBrowser
 
 if hasattr(sys, '_MEIPASS'):
-    BASE_DIR = sys._MEIPASS  # PyInstaller 임시 폴더에서 리소스를 찾기
+    BASE_DIR = sys._MEIPASS
 else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 개발 중에는 현재 디렉토리에서 찾기
-    
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 UI_PATH = "bkig_automatic_posting.ui"
+
+# [수정] 백그라운드 작업을 처리할 QThread 클래스 정의
+class WorkerThread(QThread):
+    def __init__(self, coupang_id, coupang_pw, blog_id, blog_pw, blog_write_page, search_word, post_num, api_key):
+        super().__init__()
+        self.coupang_id = coupang_id
+        self.coupang_pw = coupang_pw
+        self.blog_id = blog_id
+        self.blog_pw = blog_pw
+        self.blog_write_page = blog_write_page
+        self.search_word = search_word
+        self.post_num = post_num
+        self.api_key = api_key
+
+    def run(self):
+        blog_automatic_posting.main(
+            self.coupang_id, self.coupang_pw,
+            self.blog_id, self.blog_pw,
+            self.blog_write_page, self.search_word,
+            self.post_num, self.api_key
+        )
+
 
 class MainDialog(QDialog):
     def __init__(self):
         super().__init__(None)
         uic.loadUi(os.path.join(BASE_DIR, UI_PATH), self)
         self.start.clicked.connect(self.run_main)
+
+    def log(message):
+        self.text_browser.append(message)
+        QApplication.processEvents()
 
     def run_main(self):
         try:
@@ -31,23 +59,21 @@ class MainDialog(QDialog):
             if not post_num.isdigit() or int(post_num) == 0:
                 raise ValueError("글 개수에는 0이 아닌 숫자만 들어갈 수 있습니다.")
 
-            # 실제 실행
-            blog_automatic_posting.main(
+            # [수정] QThread를 이용해 백그라운드에서 작업 실행
+            self.worker = WorkerThread(
                 coupang_id, coupang_pw, blog_id, blog_pw,
                 blog_write_page, search_word, post_num, api_key
             )
+            self.worker.start()
 
         except Exception as e:
-            QMessageBox.critical(self, "에러", str(e))  # GUI 에러 메시지 출력
+            QMessageBox.critical(self, "에러", str(e))
 
 
-if __name__ == "__main__" :
+if __name__ == "__main__":
     QApplication.setStyle("fusion")
-    app = QApplication(sys.argv) 
+    app = QApplication(sys.argv)
 
-    #WindowClass의 인스턴스 생성
-    main_dialog = MainDialog() 
-
-    #프로그램 화면을 보여주는 코드
+    main_dialog = MainDialog()
     main_dialog.show()
     sys.exit(app.exec_())

@@ -1,3 +1,7 @@
+import sys
+import os
+from PyQt5 import uic
+from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -14,6 +18,8 @@ import time
 import random
 import os
 import pyperclip
+from threading import Thread
+from selenium.common.exceptions import UnexpectedAlertPresentException
 
 
 
@@ -34,6 +40,7 @@ def chrome_setting():
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
     })
+    window.log("크롬 드라이버 세팅 완료")
     return driver
 
 
@@ -51,7 +58,7 @@ def info_setting(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Sear
     global blog_pw
     blog_pw = Blog_pw
     global blog_login_page
-    blog_login_page = "https://accounts.kakao.com/login/?continue=https%3A%2F%2Fkauth.kakao.com%2Foauth%2Fauthorize%3Fclient_id%3D3e6ddd834b023f24221217e370daed18%26state%3DaHR0cHM6Ly93d3cudGlzdG9yeS5jb20v%26redirect_uri%3Dhttps%253A%252F%252Fwww.tistory.com%252Fauth%252Fkakao%252Fredirect%26response_type%3Dcode%26auth_tran_id%3DgV7OKYnobRBgoKqmaIF3mJx6CyGt6CNGY9mYaUXMw5EVwsk2YKrO2bLhOjmw%26ka%3Dsdk%252F2.7.3%2520os%252Fjavascript%2520sdk_type%252Fjavascript%2520lang%252Fko-KR%2520device%252FWin32%2520origin%252Fhttps%25253A%25252F%25252Fwww.tistory.com%26is_popup%3Dfalse%26through_account%3Dtrue&talk_login=hidden#login"
+    blog_login_page = "https://accounts.kakao.com/login/?continue=https%3A%2F%2Fkauth.kakao.com%2Foauth%2Fauthorize%3Fclient_id%3D3e6ddd834b023f24221217e370daed18%26state%3DaHR0cHM6Ly9wcm9kdWN0cy1yZWNvbW1lbmRhdGlvbi50aXN0b3J5LmNvbS9tYW5hZ2UvbmV3cG9zdC8%26prompt%3Dselect_account%26redirect_uri%3Dhttps%253A%252F%252Fwww.tistory.com%252Fauth%252Fkakao%252Fredirect%26response_type%3Dcode%26auth_tran_id%3Da8ru5yv2h73e6ddd834b023f24221217e370daed18ma3b9sxs%26ka%3Dsdk%252F1.43.5%2520os%252Fjavascript%2520sdk_type%252Fjavascript%2520lang%252Fko-KR%2520device%252FWin32%2520origin%252Fhttps%25253A%25252F%25252Fwww.tistory.com%26is_popup%3Dfalse%26through_account%3Dtrue#webTalkLogin"
     global blog_write_page
     blog_write_page = Blog_write_page
     global search_word
@@ -77,8 +84,10 @@ def login(driver):
     while(True):
         driver.find_element(By.CSS_SELECTOR, ".login__button--submit").click()
         WebDriverWait(driver, 10).until(EC.url_contains("postlogin"))
+        window.log("로그인 실패")
         time.sleep(1)
         if not driver.find_elements(By.CSS_SELECTOR, ".login__button--submit"):
+            window.log("로그인 성공")
             break
     
 def search(driver):
@@ -105,68 +114,83 @@ def get_link(driver, n): #n개의 상품 링크 가져오기
         clipboard_text = pyperclip.paste()
         if(clipboard_text[:4] == "http"):
             links.append(clipboard_text)
+        window.log(str(i+1) + "번째 상품 링크 추출")
         driver.back()
     return links
 
 
 
 #링크 타고 들어가서 대표 이미지와 베스트 리뷰 가져오기
+from selenium.common.exceptions import StaleElementReferenceException
+
 def get_img_review_title(driver, links):
     img_srcs = []
     best_reviews = []
     titles = []
+    i = 1
+
     for link in links:
         driver.get(link)
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, '.rds-button.rds-button--lg.rds-button--fill-blue-normal.rds-button--block.main-product_action__XSlcT'))).click()
-        #베스트 리뷰 가져오기기
-        img_src = get_img(driver)
-        img_srcs.append(img_src)
-        best_review = get_review(driver)
-        best_reviews.append(best_review)
-        title = get_title(driver)
-        titles.append(title)
+
+        # 상품 상세 클릭
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, '.rds-button.rds-button--lg.rds-button--fill-blue-normal.rds-button--block.main-product_action__XSlcT')
+        )).click()
+
+        # 이미지 src 안전하게 추출
+        try:
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, ".rds-img img")
+            ))
+            img_element = WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, ".rds-img img"))
+            )
+            img_src = img_element.get_attribute("src")
+            img_srcs.append(img_src)
+        except StaleElementReferenceException:
+            # 요소가 변경된 경우 다시 시도
+            img_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".rds-img img"))
+            )
+            img_src = img_element.get_attribute("src")
+            img_srcs.append(img_src)
+
+        # 베스트 리뷰
+        try:
+            best_review = WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, ".ProductReview_review__article__reviews__text__article__FveJz"))
+            )
+            best_reviews.append(best_review.text)
+        except Exception:
+            best_reviews.append("리뷰 없음")
+
+        # 상품 제목
+        try:
+            title = WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, ".ProductInfo_title__fLscZ"))
+            )
+            titles.append(title.text)
+        except Exception:
+            titles.append("제목 없음")
+
         print(img_srcs)
         print(best_reviews)
         print(titles)
+        window.log(str(i) + "번째 상품 제목, 이미지, 리뷰 추출")
+        i += 1
+
     return img_srcs, best_reviews, titles
-
-def get_img(driver):
-    
-    try:
-        img_src = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, ".rds-img img"))
-        )
-        return img_src.get_attribute("src")
-    except Exception as e:
-            print(f"오류 발생: {e}")
-            return None
-
-def get_review(driver):
-    best_review = WebDriverWait(driver, 10).until(
-    EC.presence_of_element_located((By.CSS_SELECTOR, ".ProductReview_review__article__reviews__text__article__FveJz"))
-    )
-    return best_review.text
-
-def get_title(driver):
-    title = WebDriverWait(driver, 10).until(
-    EC.presence_of_element_located((By.CSS_SELECTOR, ".ProductInfo_title__fLscZ"))
-    )
-    return title.text
-
     
 
 
 
 #링크, 이미지 경로, 리뷰 엑셀에 저장하기
 def save_xl(links, img_srcs, best_reviews, titles):
-    print("save_xl실행!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     # 엑셀 파일 경로
 
     if os.path.exists(file_path):     # 파일이 존재하는지 확인
-        wb = load_workbook(file_path) # 파일이 존재하면 열기
-    else:
-        wb = Workbook() # 파일이 존재하지 않으면 새로 생성
+        os.remove(file_path) #존재하면 삭제
+    wb = Workbook() # 파일이 존재하지 않으면 새로 생성
 
     
     ws = wb.active
@@ -197,12 +221,18 @@ def save_xl(links, img_srcs, best_reviews, titles):
             seen.add(titles)  # 처음 등장하는 값은 저장
 
     # 중복 행 삭제 (뒤에서부터 삭제해야 인덱스가 틀어지지 않음)
+    del_num=len(rows_to_delete)
     for row in reversed(rows_to_delete):
         ws.delete_rows(row)
+
+    window.log(str(del_num) + "개의 중복상품 제거")
+    
+        
 
     #저장
     wb.save(file_path)
     wb.close()
+    window.log("추출한 정보 엑셀에 저장 완료")
 
 def make_content():
     wb = load_workbook(file_path)
@@ -248,7 +278,7 @@ def make_content():
             
         content = "\n".join(paragraph)
         contents.append(content)
-        print(str(i+1) + "번째 글 생성 완료")
+        window.log(str(i+1) + "번째 글 생성 완료")
 
     #엑셀에 content 저장하기
     i=2 #1열은 속성, 2열부터 값 저장
@@ -275,6 +305,7 @@ def write_blog(driver):
 
     #로그인
     driver.get(blog_login_page)
+    time.sleep(1)
     login_box = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "loginId--1")))
     login_box.click()
     pyperclip.copy(blog_id)
@@ -283,22 +314,34 @@ def write_blog(driver):
     pw_box.click()
     pyperclip.copy(blog_pw)
     pw_box.send_keys(Keys.CONTROL, "v")
-    driver.find_element(By.CSS_SELECTOR, ".btn_g.highlight.submit").click()
+    time.sleep(1)
+    #driver.find_element(By.CSS_SELECTOR, ".btn_g.highlight.submit").click()
+    pw_box.send_keys(Keys.ENTER)
+    window.log("블로그 로그인 성공")
 
     for i in range(len(contents)):
-        time.sleep(2)
-        driver.get(blog_write_page)
-
-        #글 이어쓰기 alert창 나오면 새로 쓰기
+        time.sleep(5)
         try:
-            WebDriverWait(driver, 3).until(EC.alert_is_present())
-            alert = driver.switch_to.alert
-            print("알림창 내용:", alert.text)
-            alert.dismiss()
-            print("알림창 거절")
-        except:
-            print("알림창 없음")
+            driver.get(blog_write_page)
+            # 글 이어쓰기 alert창 나오면 새로 쓰기
+            try:
+                WebDriverWait(driver, 3).until(EC.alert_is_present())
+                alert = driver.switch_to.alert
+                window.log("알림창 내용:", alert.text)
+                alert.dismiss()  # '아니오' 클릭
+                window.log("알림창 거절")
+            except:
+                window.log("알림창 없음")
+        except UnexpectedAlertPresentException:
+            try:
+                alert = driver.switch_to.alert
+                window.log("예외에서 알림창 내용:", alert.text)
+                alert.dismiss()
+                window.log("예외에서 알림창 거절")
+            except:
+                window.log("예외에서 알림창 처리 실패")
 
+        time.sleep(2)
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".textarea_tit"))).click()
         webdriver.ActionChains(driver).send_keys("쿠팡 가성비 " + search_word + " 추천" + titles[i]).perform()
 
@@ -320,11 +363,11 @@ def write_blog(driver):
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn.btn-default"))).click()
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "open20"))).click()
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "publish-btn"))).click()
-
-
+        window.log(str(i+1) + "번째 글 생성 완료")
 
 
 def main(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Search_word, Post_num, Api_key):
+    window.log("프로그램 시작")
     driver = chrome_setting()
     info_setting(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Search_word, Post_num, Api_key)
     login(driver)
@@ -334,4 +377,46 @@ def main(Coupang_id, Coupang_pw, Blog_id, Blog_pw, Blog_write_page, Search_word,
     save_xl(links, img_srcs, best_reviews, titles)
     make_content()
     write_blog(driver)
-    print("스크립트 종료")
+    window.log("프로그램 종료")
+
+def run_main(coupang_id, coupang_pw, blog_id, blog_pw, blog_write_page, search_word, post_num, api_key):
+    thread = Thread(target=main, args=(coupang_id, coupang_pw, blog_id, blog_pw, blog_write_page, search_word, post_num, api_key))
+    thread.start()
+
+def resource_path(relative_path):
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+class BlogAutoPostingApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        uic.loadUi(resource_path("blog_automatic_posting.ui"), self)
+        self.start.clicked.connect(self.start_posting)
+        
+
+    def log(self, message):
+        """텍스트 브라우저에 로그 출력하는 함수"""
+        self.textBrowser.append(message)
+
+    def start_posting(self):
+        coupang_id      = self.coupang_id.text()
+        coupang_pw      = self.coupang_pw.text()
+        blog_id         = self.blog_id.text()
+        blog_pw         = self.blog_pw.text()
+        blog_write_page = self.write_page_url.text()
+        search_word     = self.search_word.text()
+        try:
+            post_num = int(self.post_num.text())
+        except ValueError:
+            self.log("글 개수는 숫자만 입력하세요.")
+            return
+        api_key         = self.api_key.text()
+        run_main(coupang_id, coupang_pw, blog_id, blog_pw, blog_write_page, search_word, post_num, api_key)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = BlogAutoPostingApp()
+    window.show()
+    sys.exit(app.exec_())
