@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt5 import uic
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel
+from PyQt5.QtWidgets import QApplication, QWidget
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -12,8 +12,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from fake_useragent import UserAgent
 from openpyxl import Workbook, load_workbook
 from openai import OpenAI
-from dotenv import load_dotenv
-load_dotenv("info.env")
 import time
 import random
 import os
@@ -414,9 +412,18 @@ class BlogAutoPostingApp(QWidget):
         api_key         = self.api_key.text()
         run_main(coupang_id, coupang_pw, blog_id, blog_pw, blog_write_page, search_word, post_num, api_key)
 
+    def computer_off(self):
+        if self.computer_off.isChecked():
+            return True
+        else:
+            return False
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = BlogAutoPostingApp()
     window.show()
+    if True == window.computer_off:
+        os.system("shutdown /s /t 0")
     sys.exit(app.exec_())
